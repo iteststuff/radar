@@ -1,0 +1,14 @@
+# linux backups
+*~
+\#*\#
+
+# object files
+*.o
+
+# executables
+doppler
+
+# user data files
+*.txt
+*.csv
+*.dat
