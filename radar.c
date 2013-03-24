@@ -48,6 +48,7 @@ void Record(paTestData* data, PaStream* stream, PaStreamParameters* inputParamet
 void Play(paTestData* data, PaStream* stream, PaStreamParameters* outputParameters);
 void Doppler(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters);
 void DopplerSample();
+void Range();
 void Artist();
 
 
@@ -384,7 +385,7 @@ void DopplerSample(paTestData* data, PaStream* stream,
   float complex_mag = 0;
   int        c = 299792458;
   float      Fd;
-  float      Ft = 2427; //Vt=2.35V
+  float      Ft = 2427e6; //Vt=2.35V
   float      Vr;
   float      MPH;
 
@@ -413,13 +414,29 @@ void DopplerSample(paTestData* data, PaStream* stream,
   }
 
   Fd = ((float)max_index * SAMPLE_RATE / N);
-  Vr = (Fd * c) / (2 * Ft * 1000 * 1000); // meters/sec
+  Vr = (Fd * c) / (2 * Ft); // meters/sec
   MPH = (Vr * 3600) / (0.0254 * 12 * 5280);
 
   printf("Speed = %.2f MPH. Frequency = %.2f Hz. Amplitude = %.2f\n", 
 	 DecRound(MPH, 2), DecRound(Fd, 2), DecRound(max_value, 2));
 }
 
+
+void Range(){
+  int fstart = 2401; //Vt=2.00V
+  int fstop  = 2496; //Vt=3.40V
+  int bw     = fstop - fstart; //95MHz
+  int tp     = 20e-3; //pulse time period
+  int N      = tp * SAMPLE_RATE;
+  int c      = 299792458;
+  int rr     = c / (2 * bw);
+  int max_range = rr * N / 2;
+
+
+
+
+
+}
 
 
 void Artist(){
