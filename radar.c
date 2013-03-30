@@ -188,11 +188,12 @@ char Prompt(){
   char c;
 
   printf("\nWhat would you like to do?\n");
+  printf("R. Detect Range\n");
   printf("D. Get some doppler!\n");
-  printf("R. Record some audio.\n");
+  printf("W. Record some audio.\n");
   printf("P. Play some audio.\n");
   printf("S. Speed Calc.\n");
-  printf("W. Open window.\n");
+  printf("A. Artist the window.\n");
   printf("Q. Quit.\n");
   
   c = getchar();
@@ -417,12 +418,14 @@ void DopplerSample(paTestData* data, PaStream* stream,
   Vr = (Fd * c) / (2 * Ft); // meters/sec
   MPH = (Vr * 3600) / (0.0254 * 12 * 5280);
 
-  printf("Speed = %.2f MPH. Frequency = %.2f Hz. Amplitude = %.2f\n", 
-	 DecRound(MPH, 2), DecRound(Fd, 2), DecRound(max_value, 2));
+  //  printf("Speed = %.2f MPH. Frequency = %.2f Hz. Amplitude = %.2f\n", 
+  //	 DecRound(MPH, 2), DecRound(Fd, 2), DecRound(max_value, 2));
+  printf("Speed = %.2f MPH\n", DecRound(MPH, 2));
+
 }
 
 
-void Range(){
+void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters){
   int fstart = 2401; //Vt=2.00V
   int fstop  = 2496; //Vt=3.40V
   int bw     = fstop - fstart; //95MHz
@@ -431,6 +434,51 @@ void Range(){
   int c      = 299792458;
   int rr     = c / (2 * bw);
   int max_range = rr * N / 2;
+
+  PaError err;
+  int i;
+  fftw_complex *fft_buff;
+  fftw_plan plan;
+  int N = SAMPLE_RATE * SAMPLE_TIME;
+
+  data->frameIndex = 0;
+  err = Pa_OpenStream(&stream, inputParameters, NULL, SAMPLE_RATE,
+		      FRAMES_PER_BUFFER, paClipOff, recordCallback,
+		      data);
+  if(err != paNoError)
+    ErrExit("There was an error opening the stream.");
+  
+  err = Pa_StartStream(stream);
+  if(err != paNoError)
+    ErrExit("There was an error starting the stream.");
+  
+  while((err = Pa_IsStreamActive(stream)) == 1){
+    Pa_Sleep(100);
+  }
+
+  if(err < 0)
+    ErrExit("Active stream died!");
+  
+  fft_buff = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
+
+  for(i = 0; i < N; i++){
+    fft_buff[i][0] = data->recordedSamples[2*i+1];
+    fft_buff[i][1] = 0;
+  }
+
+  plan = fftw_plan_dft_1d(N, fft_buff, fft_buff, FFTW_FORWARD, FFTW_ESTIMATE);
+  
+  for(;;){
+    DopplerSample(data, stream, fft_buff, &plan);
+  }
+
+  err = Pa_CloseStream(stream);
+  if(err != paNoError)
+    ErrExit("Could not close stream.");
+
+  fftw_destroy_plan(plan);
+  fftw_free(fft_buff);
+
 
 
 
@@ -497,20 +545,24 @@ int main(){
   
   for(;;){
     switch (Prompt()){
+    case 'R':
+    case 'r':
+      Range();
+      break;
     case 'D':
     case 'd':
       Doppler(&data, stream, &inputParameters);
       break;
-    case 'R':
-    case 'r':
+    case 'W':
+    case 'w':
       Record(&data, stream, &inputParameters);
       break;
     case 'P':
     case 'p':
       Play(&data, stream, &outputParameters);
       break;
-    case 'W':
-    case 'w':
+    case 'A':
+    case 'a':
       Artist();
       break;
     case 'S':
