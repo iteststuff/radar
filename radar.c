@@ -464,7 +464,7 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
 
   if(err < 0)
     ErrExit("Active stream died!");
-  printf("pulse size: %d", pulse_size);
+
   fft_buff = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * pulse_size);
     
   for(i = 1; i < fft_bin; i++){
@@ -503,7 +503,7 @@ void RangeSample(paTestData* data, PaStream* stream,
   int fstart = 2401; //Vt=2.00V
   int fstop  = 2496; //Vt=3.40V
   int bw     = fstop - fstart; //95MHz
-  int tp     = 20e-3; //pulse time period
+  float tp     = 20e-3; //pulse time period
   int pulse_size = tp * SAMPLE_RATE;
   int c      = 299792458;
   int rr     = c / (2 * bw);
@@ -552,7 +552,7 @@ void RangeSample(paTestData* data, PaStream* stream,
     complex_mag = sqrt(fft_buff[i][0]*fft_buff[i][0] +
 		       fft_buff[i][1]*fft_buff[i][1]);
 
-    printf("Complex Mag = %f\n", complex_mag);
+    //printf("Complex Mag = %f\n", complex_mag);
 
     if((complex_mag > max_value) && (complex_mag > 20)){
       max_index = i;
