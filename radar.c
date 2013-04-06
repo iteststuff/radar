@@ -12,7 +12,7 @@
 
 #define SAMPLE_RATE 44100
 #define FRAMES_PER_BUFFER 512
-#define SAMPLE_TIME 0.1
+#define SAMPLE_TIME 0.04
 #define CHANNELS 2
 
 
@@ -47,8 +47,11 @@ double DecRound(double x, int d);
 void Record(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters);
 void Play(paTestData* data, PaStream* stream, PaStreamParameters* outputParameters);
 void Doppler(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters);
-void DopplerSample();
-void Range();
+void DopplerSample(paTestData* data, PaStream* stream,
+		   fftw_complex* fft_buff, fftw_plan* plan);
+void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters);
+void RangeSample(paTestData* data, PaStream* stream,
+		 fftw_complex* fft_buff, fftw_plan* plan);
 void Artist();
 
 
@@ -349,7 +352,7 @@ void Doppler(paTestData* data, PaStream* stream, PaStreamParameters* inputParame
     ErrExit("There was an error starting the stream.");
   
   while((err = Pa_IsStreamActive(stream)) == 1){
-    Pa_Sleep(100);
+    Pa_Sleep(SAMPLE_TIME * 100);
   }
 
   if(err < 0)
@@ -394,7 +397,7 @@ void DopplerSample(paTestData* data, PaStream* stream,
   data->frameIndex = 0;
   err = Pa_StartStream(stream);
   while((err = Pa_IsStreamActive(stream)) == 1){
-    Pa_Sleep(100);
+    Pa_Sleep(SAMPLE_TIME * 100);
   }
 
   for(i = 0; i < N; i++){
@@ -429,17 +432,20 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
   int fstart = 2401; //Vt=2.00V
   int fstop  = 2496; //Vt=3.40V
   int bw     = fstop - fstart; //95MHz
-  int tp     = 20e-3; //pulse time period
-  int N      = tp * SAMPLE_RATE;
+  float tp     = 20e-3; //pulse time period
+  int pulse_size = SAMPLE_RATE * tp;
   int c      = 299792458;
   int rr     = c / (2 * bw);
-  int max_range = rr * N / 2;
+  int max_range = rr * pulse_size / 2;
 
   PaError err;
   int i;
   fftw_complex *fft_buff;
   fftw_plan plan;
-  int N = SAMPLE_RATE * SAMPLE_TIME;
+
+  int fft_bin = SAMPLE_RATE * SAMPLE_TIME;
+  int pulse_start = 0;
+  int threshold = 0;
 
   data->frameIndex = 0;
   err = Pa_OpenStream(&stream, inputParameters, NULL, SAMPLE_RATE,
@@ -453,23 +459,34 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
     ErrExit("There was an error starting the stream.");
   
   while((err = Pa_IsStreamActive(stream)) == 1){
-    Pa_Sleep(100);
+    Pa_Sleep(SAMPLE_TIME * 100);
   }
 
   if(err < 0)
     ErrExit("Active stream died!");
-  
-  fft_buff = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * N);
-
-  for(i = 0; i < N; i++){
-    fft_buff[i][0] = data->recordedSamples[2*i+1];
-    fft_buff[i][1] = 0;
+  printf("pulse size: %d", pulse_size);
+  fft_buff = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * pulse_size);
+    
+  for(i = 1; i < fft_bin; i++){
+    if (data->recordedSamples[2*i] > threshold 
+	&& data->recordedSamples[2*(i-1)] < threshold){
+      pulse_start = i;
+      break;
+    }
   }
 
-  plan = fftw_plan_dft_1d(N, fft_buff, fft_buff, FFTW_FORWARD, FFTW_ESTIMATE);
+  if ((fft_bin - (pulse_start + pulse_size)) < 0)
+    ErrExit("Unable to obtain full pulse period.");
+
+  for(i = 0; i < pulse_size; i++){
+      fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i+1];
+      fft_buff[i][1] = 0;
+  }
+  
+  plan = fftw_plan_dft_1d(pulse_size, fft_buff, fft_buff, FFTW_FORWARD, FFTW_ESTIMATE);
   
   for(;;){
-    DopplerSample(data, stream, fft_buff, &plan);
+    RangeSample(data, stream, fft_buff, &plan);
   }
 
   err = Pa_CloseStream(stream);
@@ -478,13 +495,83 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
 
   fftw_destroy_plan(plan);
   fftw_free(fft_buff);
-
-
-
-
-
-
 }
+
+
+void RangeSample(paTestData* data, PaStream* stream,
+		   fftw_complex* fft_buff, fftw_plan* plan){
+  int fstart = 2401; //Vt=2.00V
+  int fstop  = 2496; //Vt=3.40V
+  int bw     = fstop - fstart; //95MHz
+  int tp     = 20e-3; //pulse time period
+  int pulse_size = tp * SAMPLE_RATE;
+  int c      = 299792458;
+  int rr     = c / (2 * bw);
+  int max_range = rr * pulse_size / 2;
+
+  PaError err;
+  int i;
+  int fft_bin = SAMPLE_RATE * SAMPLE_TIME;
+  int max_index = 0;
+  float max_value = 0;
+  float complex_mag = 0;
+  float      Fd;
+  float      Ft = 2427e6; //Vt=2.35V
+  float      Vr;
+  float      MPH;
+
+  int pulse_start = 0;
+  int threshold = 0;
+
+  err = Pa_StopStream(stream);
+  data->frameIndex = 0;
+  err = Pa_StartStream(stream);
+  while((err = Pa_IsStreamActive(stream)) == 1){
+    Pa_Sleep(SAMPLE_TIME * 100);
+  }
+
+  for(i = 1; i < fft_bin; i++){
+    if (data->recordedSamples[2*i] > threshold 
+	&& data->recordedSamples[2*(i-1)] < threshold){
+      pulse_start = i;
+      break;
+    }
+  }
+
+  if ((fft_bin - (pulse_start + pulse_size)) < 0)
+    ErrExit("Unable to obtain full pulse period.");
+
+  for(i = 0; i < pulse_size; i++){
+    fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i + 1];
+    fft_buff[i][1] = 0;
+  }
+  
+  fftw_execute((*plan));
+
+  for(i = 0; i <= (pulse_size / 2); i++){
+    complex_mag = sqrt(fft_buff[i][0]*fft_buff[i][0] +
+		       fft_buff[i][1]*fft_buff[i][1]);
+
+    printf("Complex Mag = %f\n", complex_mag);
+
+    if((complex_mag > max_value) && (complex_mag > 20)){
+      max_index = i;
+      max_value = complex_mag;
+    }
+  }
+
+  Fd = ((float)max_index * SAMPLE_RATE / pulse_size);
+  printf("Frequency = %.2f Hz\n", DecRound(Fd, 2));
+
+  //  Vr = (Fd * c) / (2 * Ft); // meters/sec
+  //MPH = (Vr * 3600) / (0.0254 * 12 * 5280);
+
+  //printf("Speed = %.2f MPH. Frequency = %.2f Hz. Amplitude = %.2f\n", 
+  //	 DecRound(MPH, 2), DecRound(Fd, 2), DecRound(max_value, 2));
+  //printf("Speed = %.2f MPH\n", DecRound(MPH, 2));
+}
+
+
 
 
 void Artist(){
@@ -547,7 +634,7 @@ int main(){
     switch (Prompt()){
     case 'R':
     case 'r':
-      Range();
+      Range(&data, stream, &inputParameters);
       break;
     case 'D':
     case 'd':
