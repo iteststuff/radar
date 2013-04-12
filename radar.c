@@ -12,7 +12,7 @@
 
 #define SAMPLE_RATE 44100
 #define FRAMES_PER_BUFFER 512
-#define SAMPLE_TIME 0.04
+#define SAMPLE_TIME 0.06
 #define CHANNELS 2
 
 
@@ -182,7 +182,7 @@ int playCallback(const void *input,
 void ErrExit(char *errString)
 {
   Pa_Terminate();
-  printf("Something went wrong: %s Exiting!", errString);
+  printf("Something went wrong: %s Exiting!\n", errString);
   exit(0);
 }
 
@@ -474,7 +474,7 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
       break;
     }
   }
-
+  printf("fft_bin: %d pulse_start+pulse_size: %d\n", fft_bin, pulse_start + pulse_size);
   if ((fft_bin - (pulse_start + pulse_size)) < 0)
     ErrExit("Unable to obtain full pulse period.");
 
@@ -522,6 +522,7 @@ void RangeSample(paTestData* data, PaStream* stream,
 
   int pulse_start = 0;
   int threshold = 0;
+  int rising;
 
   err = Pa_StopStream(stream);
   data->frameIndex = 0;
@@ -534,15 +535,27 @@ void RangeSample(paTestData* data, PaStream* stream,
     if (data->recordedSamples[2*i] > threshold 
 	&& data->recordedSamples[2*(i-1)] < threshold){
       pulse_start = i;
+      rising = 1;
+      break;
+    }
+    if (data->recordedSamples[2*i] < threshold 
+	&& data->recordedSamples[2*(i-1)] > threshold){
+      pulse_start = i;
+      rising = 0;
       break;
     }
   }
-
-  if ((fft_bin - (pulse_start + pulse_size)) < 0)
+  //  printf("fft_bin: %d pulse_start+pulse_size: %d\n", fft_bin, pulse_start + pulse_size);
+  if ((fft_bin - (pulse_start + pulse_size)) < 0){
+    FILE* fout = fopen("fft_dump.csv", "w");
+    for(i=0; i < fft_bin; i++)
+      fprintf(fout, "%f\n", data->recordedSamples[2*i]);
     ErrExit("Unable to obtain full pulse period.");
+  }
 
   for(i = 0; i < pulse_size; i++){
-    fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i + 1];
+    fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i + 1] - 
+      data->recordedSamples[pulse_start + pulse_size + 2*i + 1];
     fft_buff[i][1] = 0;
   }
   
@@ -552,16 +565,19 @@ void RangeSample(paTestData* data, PaStream* stream,
     complex_mag = sqrt(fft_buff[i][0]*fft_buff[i][0] +
 		       fft_buff[i][1]*fft_buff[i][1]);
 
-    //printf("Complex Mag = %f\n", complex_mag);
+    // printf("%d, %f\n", i*SAMPLE_RATE/pulse_size, complex_mag);
 
-    if((complex_mag > max_value) && (complex_mag > 20)){
+    if((complex_mag > max_value) && (complex_mag > 0)){
       max_index = i;
       max_value = complex_mag;
     }
   }
 
+
   Fd = ((float)max_index * SAMPLE_RATE / pulse_size);
   printf("Frequency = %.2f Hz\n", DecRound(Fd, 2));
+
+  //  ErrExit("loook at your data....");
 
   //  Vr = (Fd * c) / (2 * Ft); // meters/sec
   //MPH = (Vr * 3600) / (0.0254 * 12 * 5280);
