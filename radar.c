@@ -429,14 +429,14 @@ void DopplerSample(paTestData* data, PaStream* stream,
 
 
 void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters){
-  int fstart = 2401; //Vt=2.00V
-  int fstop  = 2496; //Vt=3.40V
-  int bw     = fstop - fstart; //95MHz
+  //  int fstart = 2401; //Vt=2.00V
+  //  int fstop  = 2496; //Vt=3.40V
+  //  int bw     = fstop - fstart; //95MHz
   float tp     = 20e-3; //pulse time period
   int pulse_size = SAMPLE_RATE * tp;
-  int c      = 299792458;
-  int rr     = c / (2 * bw);
-  int max_range = rr * pulse_size / 2;
+  //  int c      = 299792458;
+  // float rr     = c / (2 * bw * 1e6);
+  // float max_range = rr * pulse_size / 2;
 
   PaError err;
   int i;
@@ -503,22 +503,20 @@ void RangeSample(paTestData* data, PaStream* stream,
   int fstart = 2401; //Vt=2.00V
   int fstop  = 2496; //Vt=3.40V
   int bw     = fstop - fstart; //95MHz
-  float tp     = 20e-3; //pulse time period
+  float tp    = 20e-3; //pulse time period
   int pulse_size = tp * SAMPLE_RATE;
   int c      = 299792458;
-  int rr     = c / (2 * bw);
-  int max_range = rr * pulse_size / 2;
+  float rr     = c / (2 * bw * 1e6);
+  float max_range = rr * pulse_size / 2;
 
   PaError err;
-  int i;
-  int fft_bin = SAMPLE_RATE * SAMPLE_TIME;
-  int max_index = 0;
+  int   i;
+  int   fft_bin = SAMPLE_RATE * SAMPLE_TIME;
+  int   max_index = 0;
   float max_value = 0;
   float complex_mag = 0;
-  float      Fd;
-  float      Ft = 2427e6; //Vt=2.35V
-  float      Vr;
-  float      MPH;
+  float Fr;
+  float distance;
 
   int pulse_start = 0;
   int threshold = 0;
@@ -553,11 +551,27 @@ void RangeSample(paTestData* data, PaStream* stream,
     ErrExit("Unable to obtain full pulse period.");
   }
 
+  /*    FILE* fout = fopen("fft_dump.csv", "w");
+    for(i=0; i < fft_bin; i++)
+      fprintf(fout, "%d,%f,%f\n", i, data->recordedSamples[2*i], 
+	      data->recordedSamples[2*i + 1]);
+    ErrExit("Time domain data is in the file!.");
+  */
+
+
+  //    FILE* fout = fopen("fft_dump.csv", "w");
+
   for(i = 0; i < pulse_size; i++){
     fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i + 1] - 
       data->recordedSamples[pulse_start + pulse_size + 2*i + 1];
     fft_buff[i][1] = 0;
+
+    //fprintf(fout, "%d,%f,%f,%f\n", i, data->recordedSamples[pulse_start + 2*i + 1], 
+    //	    data->recordedSamples[pulse_start + pulse_size + 2*i + 1],
+    //	    fft_buff[i][0]);
   }
+  //ErrExit("Time domain data is in the file!.");
+
   
   fftw_execute((*plan));
 
@@ -567,15 +581,26 @@ void RangeSample(paTestData* data, PaStream* stream,
 
     // printf("%d, %f\n", i*SAMPLE_RATE/pulse_size, complex_mag);
 
-    if((complex_mag > max_value) && (complex_mag > 0)){
+    if(complex_mag > max_value){
       max_index = i;
       max_value = complex_mag;
     }
   }
 
 
-  Fd = ((float)max_index * SAMPLE_RATE / pulse_size);
-  printf("Frequency = %.2f Hz\n", DecRound(Fd, 2));
+  Fr = ((float)max_index * SAMPLE_RATE / pulse_size);
+  distance = ((float)max_index * rr);
+  printf("Frequency = %.2f Hz -----> %.2f meters\n", DecRound(Fr, 2),
+	 DecRound(distance, 2));
+
+  /*   FILE* fout = fopen("fft_dump.csv", "w");
+    for(i = 0; i <= (pulse_size / 2); i++)
+      fprintf(fout, "%f\n", sqrt(fft_buff[i][0]*fft_buff[i][0] +
+		       fft_buff[i][1]*fft_buff[i][1]));
+    ErrExit("Look at your file.");
+  */
+
+
 
   //  ErrExit("loook at your data....");
 
