@@ -50,8 +50,11 @@ void Doppler(paTestData* data, PaStream* stream, PaStreamParameters* inputParame
 void DopplerSample(paTestData* data, PaStream* stream,
 		   fftw_complex* fft_buff, fftw_plan* plan);
 void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters);
+void GetHalfPeriod(float* dual_chan_buff, int buff_size, int threshold,
+		   int* start, int* stop, int* rising);
 void RangeSample(paTestData* data, PaStream* stream,
 		 fftw_complex* fft_buff, fftw_plan* plan);
+void CreateScope();
 void Artist();
 
 
@@ -443,10 +446,11 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
   fftw_complex *fft_buff;
   fftw_plan plan;
 
-  int fft_bin = SAMPLE_RATE * SAMPLE_TIME;
+  int fft_bin = SAMPLE_RATE * SAMPLE_TIME / 3;
   int pulse_start = 0;
   int threshold = 0;
 
+  CreateScope();
   data->frameIndex = 0;
   err = Pa_OpenStream(&stream, inputParameters, NULL, SAMPLE_RATE,
 		      FRAMES_PER_BUFFER, paClipOff, recordCallback,
@@ -475,8 +479,8 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
     }
   }
   printf("fft_bin: %d pulse_start+pulse_size: %d\n", fft_bin, pulse_start + pulse_size);
-  if ((fft_bin - (pulse_start + pulse_size)) < 0)
-    ErrExit("Unable to obtain full pulse period.");
+  //if ((fft_bin - (pulse_start + pulse_size)) < 0)
+  //  ErrExit("Unable to obtain full pulse period.");
 
   for(i = 0; i < pulse_size; i++){
       fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i+1];
@@ -497,6 +501,54 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
   fftw_free(fft_buff);
 }
 
+void GetHalfPeriod(float* dual_chan_buff, int buff_size, int threshold,
+		   int* start, int* stop, int* rising)
+{
+  int i;
+  *start = -1;
+  *stop = -1;
+
+  for(i = 0; i < buff_size; i += 2){
+    if(dual_chan_buff[i+1] > threshold
+       && dual_chan_buff[i-1] < threshold){
+      *start = i;
+      *rising = 1;
+      break;
+    }
+    else if(dual_chan_buff[i+1] < threshold
+	    && dual_chan_buff[i-1] > threshold){
+      *start = i;
+      *rising = 0;
+      break;
+    }
+  }
+
+  if(*rising == 1){
+    for(i = *start; i < buff_size; i += 2){
+      if(dual_chan_buff[i+1] < threshold
+	 && dual_chan_buff[i-1] > threshold){
+	*stop = i;
+	break;
+      }
+    }
+  }
+  else{
+    for(i = *start; i < buff_size; i += 2){
+      if(dual_chan_buff[i+1] > threshold
+	 && dual_chan_buff[i-1] < threshold){
+	*stop = i;
+	break;
+      }
+    }
+  }
+
+  if(*start == -1 || *stop == -1){
+    FILE* fout = fopen("fft_dump.csv", "w");
+    for(i=0; i < buff_size; i += 2)
+      fprintf(fout, "%f\n", dual_chan_buff[i+1]);
+    ErrExit("Unable to obtain full pulse period.");
+  } 
+}
 
 void RangeSample(paTestData* data, PaStream* stream,
 		   fftw_complex* fft_buff, fftw_plan* plan){
@@ -511,14 +563,18 @@ void RangeSample(paTestData* data, PaStream* stream,
 
   PaError err;
   int   i;
-  int   fft_bin = SAMPLE_RATE * SAMPLE_TIME;
+  int   sample_size = SAMPLE_RATE * SAMPLE_TIME * 2;
+  int   fft_bin = SAMPLE_RATE * SAMPLE_TIME / 3;
+
   int   max_index = 0;
   float max_value = 0;
   float complex_mag = 0;
   float Fr;
   float distance;
 
-  int pulse_start = 0;
+  int pulse1_start, pulse1_stop;
+  int pulse2_start, pulse2_stop;
+  float pulse1_val, pulse2_val;
   int threshold = 0;
   int rising;
 
@@ -529,75 +585,44 @@ void RangeSample(paTestData* data, PaStream* stream,
     Pa_Sleep(SAMPLE_TIME * 100);
   }
 
-  for(i = 1; i < fft_bin; i++){
-    if (data->recordedSamples[2*i] > threshold 
-	&& data->recordedSamples[2*(i-1)] < threshold){
-      pulse_start = i;
-      rising = 1;
-      break;
-    }
-    if (data->recordedSamples[2*i] < threshold 
-	&& data->recordedSamples[2*(i-1)] > threshold){
-      pulse_start = i;
-      rising = 0;
-      break;
-    }
-  }
-  //  printf("fft_bin: %d pulse_start+pulse_size: %d\n", fft_bin, pulse_start + pulse_size);
-  if ((fft_bin - (pulse_start + pulse_size)) < 0){
-    FILE* fout = fopen("fft_dump.csv", "w");
-    for(i=0; i < fft_bin; i++)
-      fprintf(fout, "%f\n", data->recordedSamples[2*i]);
-    ErrExit("Unable to obtain full pulse period.");
-  }
-
-  /*    FILE* fout = fopen("fft_dump.csv", "w");
-    for(i=0; i < fft_bin; i++)
-      fprintf(fout, "%d,%f,%f\n", i, data->recordedSamples[2*i], 
-	      data->recordedSamples[2*i + 1]);
-    ErrExit("Time domain data is in the file!.");
-  */
-
-
-  //    FILE* fout = fopen("fft_dump.csv", "w");
-
-  for(i = 0; i < pulse_size; i++){
-    fft_buff[i][0] = data->recordedSamples[pulse_start + 2*i + 1] - 
-      data->recordedSamples[pulse_start + pulse_size + 2*i + 1];
-    fft_buff[i][1] = 0;
-
-    //fprintf(fout, "%d,%f,%f,%f\n", i, data->recordedSamples[pulse_start + 2*i + 1], 
-    //	    data->recordedSamples[pulse_start + pulse_size + 2*i + 1],
-    //	    fft_buff[i][0]);
-  }
-  //ErrExit("Time domain data is in the file!.");
-
+  GetHalfPeriod(data->recordedSamples, sample_size, threshold,
+		&pulse1_start, &pulse1_stop, &rising);
+  GetHalfPeriod(&data->recordedSamples[pulse1_start - 1], sample_size, threshold,
+		&pulse2_start, &pulse2_stop, &rising);
   
+  for(i = 0; i < fft_bin; i++){
+    pulse1_val = data->recordedSamples[pulse1_start + i*2 + 1];
+    pulse2_val = data->recordedSamples[pulse2_start + i*2 + 1];
+    fft_buff[i][0] = pulse1_val - pulse2_val;
+    fft_buff[i][1] = 0;
+  }
   fftw_execute((*plan));
-
-  for(i = 0; i <= (pulse_size / 2); i++){
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glBegin(GL_LINE_STRIP);
+  for(i = 5; i < fft_bin / 2; i++){
     complex_mag = sqrt(fft_buff[i][0]*fft_buff[i][0] +
 		       fft_buff[i][1]*fft_buff[i][1]);
-
-    // printf("%d, %f\n", i*SAMPLE_RATE/pulse_size, complex_mag);
-
+    glVertex3f((i-100)/200.0f,  complex_mag/4.0f, 0.0);
+    //printf("i: %d, cm: %f\n", i, complex_mag*1.0f);
+    //glVertex3f(0.0, 0.0, 0.0);
+    //glVertex3f(15, 0, 0);
     if(complex_mag > max_value){
       max_index = i;
       max_value = complex_mag;
     }
   }
-
-
+  glEnd();
+  glfwSwapBuffers();
   Fr = ((float)max_index * SAMPLE_RATE / pulse_size);
   distance = ((float)max_index * rr);
   printf("Frequency = %.2f Hz -----> %.2f meters\n", DecRound(Fr, 2),
 	 DecRound(distance, 2));
-
-  /*   FILE* fout = fopen("fft_dump.csv", "w");
-    for(i = 0; i <= (pulse_size / 2); i++)
-      fprintf(fout, "%f\n", sqrt(fft_buff[i][0]*fft_buff[i][0] +
-		       fft_buff[i][1]*fft_buff[i][1]));
-    ErrExit("Look at your file.");
+  
+  /*FILE* fout = fopen("fft_dump.csv", "w");
+  for(i = 0; i < fft_bin; i++)
+    fprintf(fout, "%f\n", sqrt(fft_buff[i][0]*fft_buff[i][0] +
+			       fft_buff[i][1]*fft_buff[i][1]));
+  ErrExit("Look at your file.");
   */
 
 
@@ -614,6 +639,30 @@ void RangeSample(paTestData* data, PaStream* stream,
 
 
 
+void CreateScope()
+{
+  if(!glfwInit())
+    ErrExit("Failed to initialize window.");
+  
+  glfwOpenWindowHint(GLFW_FSAA_SAMPLES, 4);
+  glfwOpenWindowHint(GLFW_OPENGL_VERSION_MAJOR, 2);
+  glfwOpenWindowHint(GLFW_OPENGL_VERSION_MINOR, 1);
+  
+  if(!glfwOpenWindow(1024, 768, 0,0,0,0, 32,0, GLFW_WINDOW)){
+    glfwTerminate();
+    ErrExit("Failed to open GLFW window.");
+  }
+  
+  if (glewInit() != GLEW_OK)
+    ErrExit("Failed to initialize GLEW.");
+  
+  glfwSetWindowTitle("Radar Scope");
+  glfwEnable(GLFW_STICKY_KEYS);
+  glClearColor(0.0f, 0.0f, 0.4f, 0.0f);
+  
+  glLineWidth(2.5); 
+  glColor3f(1.0, 0.0, 0.0);
+}
 
 void Artist(){
   if(!glfwInit())
