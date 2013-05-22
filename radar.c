@@ -50,7 +50,7 @@ void Doppler(paTestData* data, PaStream* stream, PaStreamParameters* inputParame
 void DopplerSample(paTestData* data, PaStream* stream,
 		   fftw_complex* fft_buff, fftw_plan* plan);
 void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParameters);
-void GetHalfPeriod(float* dual_chan_buff, int buff_size, int threshold,
+void GetHalfPeriod(float* dual_chan_buff, int buff_size, float threshold,
 		   int* start, int* stop, int* rising);
 void RangeSample(paTestData* data, PaStream* stream,
 		 fftw_complex* fft_buff, fftw_plan* plan);
@@ -501,22 +501,22 @@ void Range(paTestData* data, PaStream* stream, PaStreamParameters* inputParamete
   fftw_free(fft_buff);
 }
 
-void GetHalfPeriod(float* dual_chan_buff, int buff_size, int threshold,
+void GetHalfPeriod(float* dual_chan_buff, int buff_size, float threshold,
 		   int* start, int* stop, int* rising)
 {
   int i;
   *start = -1;
   *stop = -1;
 
-  for(i = 0; i < buff_size; i += 2){
-    if(dual_chan_buff[i+1] > threshold
-       && dual_chan_buff[i-1] < threshold){
+  for(i = 2; i < buff_size; i += 2){
+    if(dual_chan_buff[i] > threshold
+       && dual_chan_buff[i-2] < threshold){
       *start = i;
       *rising = 1;
       break;
     }
-    else if(dual_chan_buff[i+1] < threshold
-	    && dual_chan_buff[i-1] > threshold){
+    else if(dual_chan_buff[i] < threshold
+	    && dual_chan_buff[i-2] > threshold){
       *start = i;
       *rising = 0;
       break;
@@ -525,8 +525,8 @@ void GetHalfPeriod(float* dual_chan_buff, int buff_size, int threshold,
 
   if(*rising == 1){
     for(i = *start; i < buff_size; i += 2){
-      if(dual_chan_buff[i+1] < threshold
-	 && dual_chan_buff[i-1] > threshold){
+      if(dual_chan_buff[i] < threshold
+	 && dual_chan_buff[i-2] > threshold){
 	*stop = i;
 	break;
       }
@@ -534,8 +534,8 @@ void GetHalfPeriod(float* dual_chan_buff, int buff_size, int threshold,
   }
   else{
     for(i = *start; i < buff_size; i += 2){
-      if(dual_chan_buff[i+1] > threshold
-	 && dual_chan_buff[i-1] < threshold){
+      if(dual_chan_buff[i] > threshold
+	 && dual_chan_buff[i-2] < threshold){
 	*stop = i;
 	break;
       }
@@ -572,11 +572,11 @@ void RangeSample(paTestData* data, PaStream* stream,
   float Fr;
   float distance;
 
-  int pulse1_start, pulse1_stop;
-  int pulse2_start, pulse2_stop;
+  int pulse1_start, pulse1_stop, pulse1_rising;
+  int pulse2_start, pulse2_stop, pulse2_rising;
   float pulse1_val, pulse2_val;
-  int threshold = 0;
-  int rising;
+  float threshold = 0.0f;
+  FILE* fout;
 
   err = Pa_StopStream(stream);
   data->frameIndex = 0;
@@ -586,23 +586,40 @@ void RangeSample(paTestData* data, PaStream* stream,
   }
 
   GetHalfPeriod(data->recordedSamples, sample_size, threshold,
-		&pulse1_start, &pulse1_stop, &rising);
-  GetHalfPeriod(&data->recordedSamples[pulse1_start - 1], sample_size, threshold,
-		&pulse2_start, &pulse2_stop, &rising);
-  
+		&pulse1_start, &pulse1_stop, &pulse1_rising);
+  GetHalfPeriod(&data->recordedSamples[pulse1_stop - 2], sample_size, threshold,
+		&pulse2_start, &pulse2_stop, &pulse2_rising);
+  if(pulse1_rising != pulse2_rising){
+    GetHalfPeriod(&data->recordedSamples[pulse2_stop - 2], sample_size, threshold,
+		&pulse2_start, &pulse2_stop, &pulse2_rising);
+    printf("rising %d %d\n", pulse1_rising, pulse2_rising);
+  }
+  if(pulse1_rising != pulse2_rising)
+    printf("Fuckall\n");
+  fout = fopen("fuckall.csv", "w");
   for(i = 0; i < fft_bin; i++){
     pulse1_val = data->recordedSamples[pulse1_start + i*2 + 1];
     pulse2_val = data->recordedSamples[pulse2_start + i*2 + 1];
     fft_buff[i][0] = pulse1_val - pulse2_val;
     fft_buff[i][1] = 0;
+    
+    fprintf(fout, "%d, %f, %f\n", i, pulse1_val, pulse2_val);
   }
+  printf("%d %d\n", pulse1_start, pulse2_start);
+  fclose(fout);
+  fout = fopen("func_gen.csv", "w");
+  for(i = 0; i < sample_size/2; i++)
+    fprintf(fout, "%d, %f\n", i, data->recordedSamples[i*2]);
+  ErrExit("check fuckall.csv");
   fftw_execute((*plan));
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glBegin(GL_LINE_STRIP);
-  for(i = 5; i < fft_bin / 2; i++){
+  for(i = 2; i < fft_bin / 2; i++){
     complex_mag = sqrt(fft_buff[i][0]*fft_buff[i][0] +
 		       fft_buff[i][1]*fft_buff[i][1]);
-    glVertex3f((i-100)/200.0f,  complex_mag/4.0f, 0.0);
+    glVertex3f((i-fft_bin/2.0f)/fft_bin,
+	       complex_mag/(0.1f+max_value),
+	       0.0);
     //printf("i: %d, cm: %f\n", i, complex_mag*1.0f);
     //glVertex3f(0.0, 0.0, 0.0);
     //glVertex3f(15, 0, 0);
