@@ -505,18 +505,18 @@ void GetHalfPeriod(float* dual_chan_buff, int buff_size, float threshold,
 		   int* start, int* stop, int* rising)
 {
   int i;
-  *start = -1;
+  *rising = -1;
   *stop = -1;
 
-  for(i = 2; i < buff_size; i += 2){
-    if(dual_chan_buff[i] > threshold
-       && dual_chan_buff[i-2] < threshold){
+  for(i = *start + 2; i < buff_size; i += 2){
+    if(dual_chan_buff[i-2] < threshold && 
+       dual_chan_buff[i] > threshold){
       *start = i;
       *rising = 1;
       break;
     }
-    else if(dual_chan_buff[i] < threshold
-	    && dual_chan_buff[i-2] > threshold){
+    else if(dual_chan_buff[i-2] > threshold && 
+	    dual_chan_buff[i] < threshold){
       *start = i;
       *rising = 0;
       break;
@@ -542,7 +542,7 @@ void GetHalfPeriod(float* dual_chan_buff, int buff_size, float threshold,
     }
   }
 
-  if(*start == -1 || *stop == -1){
+  if(*rising == -1 || *stop == -1){
     FILE* fout = fopen("fft_dump.csv", "w");
     for(i=0; i < buff_size; i += 2)
       fprintf(fout, "%f\n", dual_chan_buff[i+1]);
@@ -572,8 +572,8 @@ void RangeSample(paTestData* data, PaStream* stream,
   float Fr;
   float distance;
 
-  int pulse1_start, pulse1_stop, pulse1_rising;
-  int pulse2_start, pulse2_stop, pulse2_rising;
+  int pulse1_start = 0, pulse1_stop = 0, pulse1_rising = 0;
+  int pulse2_start = 0, pulse2_stop = 0 , pulse2_rising = 0;
   float pulse1_val, pulse2_val;
   float threshold = 0.0f;
   FILE* fout;
@@ -587,10 +587,12 @@ void RangeSample(paTestData* data, PaStream* stream,
 
   GetHalfPeriod(data->recordedSamples, sample_size, threshold,
 		&pulse1_start, &pulse1_stop, &pulse1_rising);
-  GetHalfPeriod(&data->recordedSamples[pulse1_stop - 2], sample_size, threshold,
+  pulese2_start = pulse1_stop -2;
+  GetHalfPeriod(data->recordedSamples, sample_size, threshold,
 		&pulse2_start, &pulse2_stop, &pulse2_rising);
   if(pulse1_rising != pulse2_rising){
-    GetHalfPeriod(&data->recordedSamples[pulse2_stop - 2], sample_size, threshold,
+    pulse2_start = pulse_2_stop - 2;
+    GetHalfPeriod(data->recordedSamples, sample_size, threshold,
 		&pulse2_start, &pulse2_stop, &pulse2_rising);
     printf("rising %d %d\n", pulse1_rising, pulse2_rising);
   }
