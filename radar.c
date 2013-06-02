@@ -587,32 +587,34 @@ void RangeSample(paTestData* data, PaStream* stream,
 
   GetHalfPeriod(data->recordedSamples, sample_size, threshold,
 		&pulse1_start, &pulse1_stop, &pulse1_rising);
-  pulese2_start = pulse1_stop -2;
+  pulse2_start = pulse1_stop -2;
   GetHalfPeriod(data->recordedSamples, sample_size, threshold,
 		&pulse2_start, &pulse2_stop, &pulse2_rising);
   if(pulse1_rising != pulse2_rising){
-    pulse2_start = pulse_2_stop - 2;
+    pulse2_start = pulse2_stop - 2;
     GetHalfPeriod(data->recordedSamples, sample_size, threshold,
 		&pulse2_start, &pulse2_stop, &pulse2_rising);
     printf("rising %d %d\n", pulse1_rising, pulse2_rising);
   }
   if(pulse1_rising != pulse2_rising)
     printf("Fuckall\n");
-  fout = fopen("fuckall.csv", "w");
+  
+  //while((fout = fopen("fuckall.csv", "w")) == NULL);
   for(i = 0; i < fft_bin; i++){
     pulse1_val = data->recordedSamples[pulse1_start + i*2 + 1];
     pulse2_val = data->recordedSamples[pulse2_start + i*2 + 1];
     fft_buff[i][0] = pulse1_val - pulse2_val;
     fft_buff[i][1] = 0;
     
-    fprintf(fout, "%d, %f, %f\n", i, pulse1_val, pulse2_val);
+    //  fprintf(fout, "%d, %f, %f\n", i, pulse1_val, pulse2_val);
   }
+ 
   printf("%d %d\n", pulse1_start, pulse2_start);
   fclose(fout);
   fout = fopen("func_gen.csv", "w");
   for(i = 0; i < sample_size/2; i++)
     fprintf(fout, "%d, %f\n", i, data->recordedSamples[i*2]);
-  ErrExit("check fuckall.csv");
+  //ErrExit("check fuckall.csv");
   fftw_execute((*plan));
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glBegin(GL_LINE_STRIP);
@@ -650,7 +652,6 @@ void RangeSample(paTestData* data, PaStream* stream,
 
   //  Vr = (Fd * c) / (2 * Ft); // meters/sec
   //MPH = (Vr * 3600) / (0.0254 * 12 * 5280);
-
   //printf("Speed = %.2f MPH. Frequency = %.2f Hz. Amplitude = %.2f\n", 
   //	 DecRound(MPH, 2), DecRound(Fd, 2), DecRound(max_value, 2));
   //printf("Speed = %.2f MPH\n", DecRound(MPH, 2));
